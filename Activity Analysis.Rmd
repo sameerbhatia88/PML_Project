@@ -268,6 +268,3 @@ Combined_Prediction_DS=data.frame(RandomForest=pred_rf,RF_PCA=pred_rf_pca,TreeBa
 
 Combined_Prediction_DS
 ```
-
-## Conclusion
-Random Forest with PCA gives a different value for only Third Prediction.
