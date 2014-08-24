@@ -1,0 +1,273 @@
+<!-- rmarkdown v1 -->
+Activity Analysis
+========================================================
+
+## Executive Summary
+The analysis is about classifying activities based on a number of factors. For the classification problem we will compare three algorithms:
+1. Random Forest
+2. Random Forest with Bagging
+3. Random Forest after Dimension Rediuction
+  
+Dimension Reduction with Principal Component Analysis, dramatically reduces the complexity and reduces the execution time. However; the algorith compromises on the accuracy and interpretability.
+
+1. Data used for training and testing - [Training](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv)
+2. Data for Prediction - [Validation](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv)
+
+## Loading the Libraries
+First, we will load all the required libraries needed. We would use **caret** and **party** package for the analysis.
+
+```{r}
+library(caret)
+library(randomForest)
+library(party)
+```
+
+```{r echo=FALSE}
+setwd("C:/Users/Sameer/Desktop/Study/Practical Machine Learning/Project")
+```
+
+
+## Importing the Datasets
+```{r}
+PML_Training<-read.csv("pml_training.csv",header=T)
+
+PML_Testing<-read.csv("pml_testing.csv",header=T)
+```
+## Data Preprocessing
+Through some preliminary analysis, we would first select the columns which are expected to influence the prediction.
+
+We would store the index of these columns in a new variable **columns**
+```{r}
+columns<-which(names(PML_Training) %in% c("classe",
+                                          "num_window",
+                                          "roll_belt",
+                                          "pitch_belt",
+                                          "yaw_belt",
+                                          "total_accel_belt",
+                                          "gyros_belt_x",
+                                          "gyros_belt_y",
+                                          "gyros_belt_z",
+                                          "accel_belt_x",
+                                          "accel_belt_y",
+                                          "accel_belt_z",
+                                          "magnet_belt_x",
+                                          "magnet_belt_y",
+                                          "magnet_belt_z",
+                                          "roll_arm",
+                                          "pitch_arm",
+                                          "yaw_arm",
+                                          "total_accel_arm",
+                                          "gyros_arm_x",
+                                          "gyros_arm_y",
+                                          "gyros_arm_z",
+                                          "accel_arm_x",
+                                          "accel_arm_y",
+                                          "accel_arm_z",
+                                          "magnet_arm_x",
+                                          "magnet_arm_y",
+                                          "magnet_arm_z",
+                                          "roll_dumbbell",
+                                          "pitch_dumbbell",
+                                          "yaw_dumbbell"))
+```
+The columns use for the algorith are as follows:
+`r columns`
+
+We will then subset the training set and partition it into training and testing sets.
+```{r}
+PML_Training_Subset<-PML_Training[,columns]
+```
+
+Training set will contain 75% of the records and testing set will contain 25% of the records.
+```{r}
+inTrain<-createDataPartition(y=PML_Training_Subset$classe,p=0.75,list=FALSE)
+training<-PML_Training_Subset[inTrain,]
+testing<-PML_Training_Subset[-inTrain,]
+```
+
+## Simple Random Forrest
+**Step 1: Training The Model**
+We will first train the model on the training set using all the predictors. The output variable is **classe**
+```{r}
+r2 = randomForest(classe ~., data=training, importance=TRUE, do.trace=100)
+```
+**Step 2: FOt the Model on the Training Set:**
+```{r}
+pred2<-predict(r2,testing[,-31])
+```
+**Step 3: Building the Confusion Matrix to asses the accuracy of the Model**
+```{r}
+r2
+confusionMatrix(testing$classe,pred2)
+```
+OOB estimate of  error rate = 0.26%.
+Accuracy of the model = 99.76%
+
+**Plot of the Error Rate vs Number of Trees used**
+```{r}
+plot(r2, log="y",main="Simple Random Forrest")
+legend("topright", colnames(r2$err.rate),col=1:6,cex=0.8,fill=1:6)
+```
+The above plot shows that classifying **Activity Type D** has highest error rate.
+
+**Importance of Variables**
+```{r}
+VariableUsed<-varUsed(r2, by.tree=FALSE, count=TRUE)
+Max_Imp=names(PML_Training_Subset)[which(VariableUsed==max(VariableUsed))]
+Min_Imp=names(PML_Training_Subset)[which(VariableUsed==min(VariableUsed))]
+```
+Variable Used the most **`r Max_Imp`**
+Variable used the least **`r  Min_Imp`**
+
+## Random Forrest with Bagging
+```{r}
+predictors<-PML_Training_Subset[,-31]
+Classe<-PML_Training_Subset[,31]
+treeBag<-bag(predictors,Classe,B=10,
+             bagControl=bagControl(fit=ctreeBag$fit,
+                                   predict=ctreeBag$pred,
+                                   aggregate=ctreeBag$aggregate))
+
+
+pred3<-predict(treeBag,testing[,-31])
+
+confusionMatrix(testing$classe,pred3)
+```
+Confusion Matrix of the bagged model shows accuracy of 98.06%
+
+## Random Forrest with PCA
+**Step 1:**
+Create Principal Components and determine the number of components to be use
+```{r}
+prComp<-prcomp(training[,-31],center=T,scale=T)
+```
+We will now calculate Eigen Values and components with eigen value greater than one will be used.
+```{r}
+Eigen_Values=prComp$sdev^2
+Eigen_Values
+No_of_comp=sum(Eigen_Values>1)
+```
+Eigen Value calculation shows that we should use **`r No_of_comp`** components.
+
+We will also create screeplot to see after how many components variance plot flattens
+
+```{r}
+screeplot(prComp,main="Scree Plot",xlab="Components")
+screeplot(prComp,type="line",main="Scree  Plot")
+```
+The Plot shows that after 10 components, variance flattens.
+
+We will take the middle path and go with 9 components.
+
+Varimax Rotation shows loading of different variables on these components
+```{r}
+summary(prComp)
+load = prComp$rotation
+my.var=varimax(load)
+my.var
+```
+Cumulative variance equals 1, if we use al the 30 components. However, we decide to use 9 components.
+
+**Step 2: Pre-processing to Compute Components**
+```{r}
+preProc<-preProcess(training[,-31],method="pca",pcaComp=9)
+```
+
+**Step 3: Train the PCA Model on Train set and apply on Test set**
+```{r}
+trainPC<-predict(preProc,training[,-31])
+testPC<-predict(preProc,testing[,-31])
+```
+
+**Step 4: Fit Random Forest on trainPC**
+```{r}
+r = randomForest(training$classe ~., data=trainPC, importance=TRUE, do.trace=100)
+```
+
+**Step 5: Fit the trained model on training set**
+```{r}
+pred<-predict(r,testPC)
+```
+We will now construct the Confusion Matrix to assess the accuracy of the Model
+```{r}
+confusionMatrix(testing$classe,pred)
+r
+```
+Accuracy of the Model = 92.31%
+OOB estimate of  error rate = 7.37%
+
+
+**Plot of the Error Rate vs Number of Trees used**
+```{r}
+plot(r, log="y",main="Random Forrest with PCA")
+legend("topright", colnames(r$err.rate),col=1:6,cex=0.8,fill=1:6)
+```
+The above plot shows that classifying **Activity Type D** has highest error rate.
+
+**Importance of Variables**
+```{r}
+VariableUsedPCA<-varUsed(r, by.tree=FALSE, count=TRUE)
+Max_ImpPCA=names(testPC)[which(VariableUsedPCA==max(VariableUsedPCA))]
+Min_ImpPCA=names(testPC)[which(VariableUsedPCA==min(VariableUsedPCA))]
+```
+Component Used the most **`r Max_ImpPCA`**
+Component used the least **`r  Min_ImpPCA`**
+
+## Model Selection and Prediction
+Since, Simple Random Forest gives us the highest accuracy, we will use this model to classify the activities in the Second Dataset.
+
+**Step 1: Subset the Dataset to be predicted**
+```{r}
+columns_PML_TEST<-which(names(PML_Testing) %in% c("num_window",
+                                          "roll_belt",
+                                          "pitch_belt",
+                                          "yaw_belt",
+                                          "total_accel_belt",
+                                          "gyros_belt_x",
+                                          "gyros_belt_y",
+                                          "gyros_belt_z",
+                                          "accel_belt_x",
+                                          "accel_belt_y",
+                                          "accel_belt_z",
+                                          "magnet_belt_x",
+                                          "magnet_belt_y",
+                                          "magnet_belt_z",
+                                          "roll_arm",
+                                          "pitch_arm",
+                                          "yaw_arm",
+                                          "total_accel_arm",
+                                          "gyros_arm_x",
+                                          "gyros_arm_y",
+                                          "gyros_arm_z",
+                                          "accel_arm_x",
+                                          "accel_arm_y",
+                                          "accel_arm_z",
+                                          "magnet_arm_x",
+                                          "magnet_arm_y",
+                                          "magnet_arm_z",
+                                          "roll_dumbbell",
+                                          "pitch_dumbbell",
+                                          "yaw_dumbbell"))
+```
+
+**Step 2: Predict Activities based on Simple Random Forest Model**
+```{r}
+pred_rf<-predict(r2,PML_Testing[,columns_PML_TEST])
+```
+
+
+Just for comparison, we will compare predictions of all the models
+```{r}
+predictPC<-predict(preProc,PML_Testing[,columns_PML_TEST])
+
+pred_rf_pca<-predict(r,predictPC)
+
+pred_treeBag<-predict(treeBag,PML_Testing[,columns_PML_TEST])
+
+Combined_Prediction_DS=data.frame(RandomForest=pred_rf,RF_PCA=pred_rf_pca,TreeBag=pred_treeBag)
+
+Combined_Prediction_DS
+```
+
+## Conclusion
+Random Forest with PCA gives a different value for only Third Prediction.
